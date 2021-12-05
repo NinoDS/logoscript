@@ -23,7 +23,7 @@ class Scanner {
 			this.scanToken();
 		}
 
-		this.tokens.push(new Token(TokenType.EOF, "", null, this.line));
+		this.tokens.push(new Token(TokenType.EOF, "", this.line));
 		return this.tokens;
 	}
 
@@ -70,7 +70,7 @@ class Scanner {
 				} else if (Scanner.isAlpha(c)) {
 					this.identifier();
 				} else {
-					throw new Error(`Unexpected character: ${c}`);
+					throw new Error(`[line: ${this.line}] Unexpected character: \`${c}\``);
 				}
 		}
 	}
@@ -162,7 +162,7 @@ class Scanner {
 
 	private addToken(type: TokenType, literal?: any): void {
 		const text = this.source.substring(this.start, this.current);
-		this.tokens.push(new Token(type, text, literal, this.line));
+		this.tokens.push(new Token(type, text, this.line, literal));
 	}
 
 	private match(expected: string): boolean {

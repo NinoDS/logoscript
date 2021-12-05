@@ -1,18 +1,23 @@
 import Scanner from "./scanner.ts";
 import { Token, TokenType } from "./token.ts";
 import { LogoValue } from "./value.ts";
+import Reporter from "./reporter.ts";
 
 class Compiler {
 	private readonly tokens: Token[];
 	private current: number = 0;
-	private constants: Map<string, LogoValue> = new Map();
+	private constants: Map<string, { value: LogoValue, used: boolean }> = new Map();
+	private variables: Map<string, boolean> = new Map();
+	private functions: Map<string, boolean> = new Map();
+	private flags: Map<string, boolean>;
 
-	constructor(private source: string) {
+	public constructor(private source: string, flags: Map<string, boolean>) {
 		this.tokens = new Scanner(source).scanTokens();
+		this.flags = flags;
 	}
 
 	private static error(message: string, token: Token): never {
-		throw new Error(`[line: ${token.line}] ${message} at '${token.lexeme}'`);
+		throw new Error(`[line: ${token.line}] ${message} at \`${token.lexeme}\``);
 	}
 
 	private peek(): Token {
@@ -35,6 +40,40 @@ class Compiler {
 		while (!this.isAtEnd()) {
 			statements += this.global();
 		}
+
+		if (this.flags.has("debug")) {
+			Reporter.debug(`Compiled ${this.tokens.length} tokens.`);
+		}
+
+		if (this.flags.has("suppress-warnings")) {
+			return statements;
+		}
+
+		// Check for unused constants
+		for (const [name, { used }] of this.constants) {
+			if (!used) {
+				Reporter.warn(`Constant \`${name}\` is never used.`);
+			}
+		}
+
+		// Check for unused variables
+		for (const [name, used] of this.variables) {
+			if (!used) {
+				Reporter.warn(`Variable \`${name}\` is never used.`);
+			}
+		}
+
+		// Functions can be used from outside,
+		// so we don't need to check for unused functions by default.
+		if (this.flags.has("check-unused-functions")) {
+			// Check for unused functions
+			for (const [name, used] of this.functions) {
+				if (!used) {
+					Reporter.warn(`Function \`${name}\` is never used.`);
+				}
+			}
+		}
+
 		return statements;
 	}
 
@@ -44,7 +83,7 @@ class Compiler {
 		} else if (this.match(TokenType.CONST)) {
 			return this.constDeclaration();
 		} else if(this.match(TokenType.NEWLINE)) {
-			return "\n";
+			return "";
 		} else {
 			Compiler.error("Expected function or const declaration" + this.peek().lexeme, this.peek());
 		}
@@ -62,7 +101,8 @@ class Compiler {
 		this.consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters");
 		this.consume(TokenType.LEFT_BRACE, "Expected '{' before function body");
 		const body: string = this.block();
-		return `${body.includes("report ") ? "to-report" : "to"} ${name} [${parameters.join(" ")}]${body}end\n`;
+		this.functions.set(name, false);
+		return `${body.includes("report ") ? "to-report" : "to"} ${name} [${parameters.join(" ")}]\n${body}end\n`;
 	}
 
 	private constDeclaration(): string {
@@ -70,13 +110,17 @@ class Compiler {
 		this.consume(TokenType.EQUAL, "Expected '=' after const name");
 		const value: LogoValue = this.literal();
 		this.consume(TokenType.NEWLINE, "Expected newline after const value");
-		this.constants.set(name, value);
+		this.constants.set(name, { value, used: false });
 		return "";
 	}
 
 	private literal(): LogoValue {
 		if (this.match(TokenType.NUMBER, TokenType.STRING)) {
-			return this.previous().literal;
+			let literal : LogoValue | undefined = this.previous().literal;
+			if (literal === undefined) {
+				Compiler.error("Expected literal value", this.previous());
+			}
+			return literal;
 		} else if (this.match(TokenType.TRUE)) {
 			return new LogoValue(true);
 		} else if (this.match(TokenType.FALSE)) {
@@ -117,7 +161,7 @@ class Compiler {
 		} else if (this.match(TokenType.WHILE)) {
 			return this.whileStatement();
 		} else if (this.match(TokenType.NEWLINE)) {
-			return "\n";
+			return "";
 		} else if(this.match(TokenType.LET)) {
 			return this.declaration();
 		} else {
@@ -130,7 +174,8 @@ class Compiler {
 		this.consume(TokenType.EQUAL, "Expected '=' after variable name");
 		const value: string = this.expression();
 		this.consume(TokenType.NEWLINE, "Expected newline after variable value");
-		return `let ${name} ${value} \n`;
+		this.variables.set(name, false);
+		return `let ${name} ${value}\n`;
 	}
 
 	private foreachStatement(): string {
@@ -139,7 +184,7 @@ class Compiler {
 		const list: string = this.expression();
 		this.consume(TokenType.LEFT_BRACE, "Expected '{' before foreach body");
 		const body: string = this.block();
-		return `foreach ${list} [${name} -> \n${body}]\n`;
+		return `foreach ${list} [${name} ->\n${body}]\n`;
 	}
 
 	private ifStatement(): string {
@@ -312,6 +357,7 @@ class Compiler {
 			} while (this.match(TokenType.COMMA));
 		}
 		this.consume(TokenType.RIGHT_PAREN, "Expect ')' after arguments.");
+		this.functions.set(callee, true);
 		return `${callee} ${args.join(' ')}`;
 	}
 
@@ -327,13 +373,27 @@ class Compiler {
 		} else if (this.match(TokenType.TRUE)) {
 			return 'true';
 		} else if(this.match(TokenType.NUMBER, TokenType.STRING)){
-			return this.previous().literal.toString();
+			let literal: LogoValue | undefined = this.previous().literal;
+			// All numbers and string tokens must have a literal value,
+			// so this should never throw an error.
+			if (literal === undefined) {
+				throw new Error('Expected literal value');
+			}
+			return literal.toString();
 		} else if (this.match(TokenType.IDENTIFIER)) {
-			if (this.constants.has(this.previous().lexeme)) {
-				// @ts-ignore We already checked that the constant exists.
-				return this.constants.get(this.previous().lexeme).toString();
+			const lexeme: string = this.previous().lexeme;
+			if (this.constants.has(lexeme)) {
+				const constant: { value: LogoValue, used: boolean } | undefined = this.constants.get(lexeme);
+				// We already know that the constant exists,
+				// so this should never throw an error.
+				if (constant === undefined) {
+					throw new Error(`Constant ${lexeme} not found`);
+				}
+				constant.used = true;
+				return constant.value.toString();
 			} else {
-				return this.previous().lexeme;
+				this.variables.set(lexeme, true);
+				return lexeme;
 			}
 		} else if (this.match(TokenType.LEFT_PAREN)) {
 			const expression: string = this.expression();

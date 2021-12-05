@@ -25,10 +25,10 @@ enum TokenType {
 class Token {
 	public type: TokenType;
 	public lexeme: string;
-	public literal: LogoValue;
+	public literal?: LogoValue;
 	public line: number;
 
-	constructor(type: TokenType, lexeme: string, literal: any, line: number) {
+	constructor(type: TokenType, lexeme: string, line: number, literal?: LogoValue) {
 		this.type = type;
 		this.lexeme = lexeme;
 		this.literal = literal;

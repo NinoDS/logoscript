@@ -31,7 +31,7 @@ class LogoValue {
 		} else if (this.type === LogoValueType.BOOLEAN) {
 			return this.value.toString();
 		} else if (this.type === LogoValueType.LIST) {
-			return `( list ${(this.value as LogoValue[]).map((v) => v.toString()).join(" ")})`;
+			return `( list ${(this.value as LogoValue[]).map((v) => v.toString()).join(" ")} )`;
 		} else {
 			throw new Error("Unknown type");
 		}
