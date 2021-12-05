@@ -5,23 +5,39 @@ import clipboard from "https://deno.land/x/clipboard@v0.0.2/mod.ts";
 import CompileError from "./compileerror.ts";
 
 // Deno flags: --allow-run --allow-read --allow-write
-let file;
-if (Deno.args.length < 1) {
-	//Reporter.panic("Usage: lsc <file>");
-	file = "test/test.txt";
-} else {
-	file = Deno.args[0];
-}
+
+const usage: string = `
+Usage:
+  lsc <file> [options]
+  
+Options:
+	--copy                      Copy the result to the clipboard
+	--save                      Save the result to a file
+	--suppress-warnings         Suppress warnings
+	--debug                     Enable debug mode
+	--help                      Show this help
+`
 
 let flags: Map<string, boolean> = new Map();
 
-for (const flag of Deno.args) {
-	if (flag.startsWith("--")) {
-		flags.set(flag.substring(2), true);
+const args = Deno.args.filter(arg => {
+	if (arg.startsWith("--")) {
+		flags.set(arg.substring(2), true);
+		return false;
 	}
+	return true;
+});
+
+if (flags.has("help")) {
+	Reporter.info(usage);
+	Deno.exit(0);
 }
 
-const filepath: string = Deno.realPathSync(file);
+if (args.length !== 1) {
+	Reporter.panic(usage);
+}
+
+const filepath: string = Deno.realPathSync(args[0]);
 const source: string = Deno.readTextFileSync(filepath);
 
 try {
