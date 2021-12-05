@@ -2,11 +2,15 @@ import Compiler from "./compiler.ts";
 import Reporter from "./reporter.ts";
 import { toFileUrl, parse } from "https://deno.land/std@0.117.0/path/mod.ts";
 import clipboard from "https://deno.land/x/clipboard@v0.0.2/mod.ts";
+import CompileError from "./compileerror.ts";
 
 // Deno flags: --allow-run --allow-read --allow-write
-
+let file;
 if (Deno.args.length < 1) {
-	Reporter.panic("Usage: lsc <file>");
+	//Reporter.panic("Usage: lsc <file>");
+	file = "test/test.txt";
+} else {
+	file = Deno.args[0];
 }
 
 let flags: Map<string, boolean> = new Map();
@@ -17,12 +21,12 @@ for (const flag of Deno.args) {
 	}
 }
 
-const filepath = await Deno.realPath(Deno.args[0]);
-const source = await Deno.readTextFile(filepath);
+const filepath: string = Deno.realPathSync(file);
+const source: string = Deno.readTextFileSync(filepath);
 
 try {
 	Reporter.info(`Compiling ${toFileUrl(filepath).href} ...`);
-	const compiler = new Compiler(source, flags);
+	const compiler = new Compiler(source, flags, filepath);
 	const output = compiler.compile();
 	Reporter.success("Compiled successfully");
 
@@ -34,8 +38,12 @@ try {
 		Reporter.log(output);
 	}
 } catch (error) {
-	Reporter.error(error.message);
-	Reporter.panic("Compilation failed");
+	if (error instanceof CompileError) {
+		error.print();
+		Deno.exit(1);
+	} else {
+		console.error(error);
+	}
 }
 
 // Write output to a file with the same name as the input file

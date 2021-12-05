@@ -2,6 +2,7 @@ import Scanner from "./scanner.ts";
 import { Token, TokenType } from "./token.ts";
 import { LogoValue } from "./value.ts";
 import Reporter from "./reporter.ts";
+import CompileError from "./compileerror.ts";
 
 class Compiler {
 	private readonly tokens: Token[];
@@ -10,14 +11,16 @@ class Compiler {
 	private variables: Map<string, boolean> = new Map();
 	private functions: Map<string, boolean> = new Map();
 	private flags: Map<string, boolean>;
+	private readonly file: string;
 
-	public constructor(private source: string, flags: Map<string, boolean>) {
-		this.tokens = new Scanner(source).scanTokens();
+	public constructor(private source: string, flags: Map<string, boolean>, file: string) {
+		this.tokens = new Scanner(source, file).scanTokens();
 		this.flags = flags;
+		this.file = file;
 	}
 
-	private static error(message: string, token: Token): never {
-		throw new Error(`[line: ${token.line}] ${message} at \`${token.lexeme}\``);
+	private error(message: string, token: Token): never {
+		throw new CompileError(message, token, this.source, this.file);
 	}
 
 	private peek(): Token {
@@ -32,7 +35,7 @@ class Compiler {
 		if (this.peek().type === type) {
 			return this.next();
 		}
-		Compiler.error(message, this.peek());
+		this.error(message, this.peek());
 	}
 
 	public compile(): string {
@@ -85,7 +88,7 @@ class Compiler {
 		} else if(this.match(TokenType.NEWLINE)) {
 			return "";
 		} else {
-			Compiler.error("Expected function or const declaration" + this.peek().lexeme, this.peek());
+			this.error("Expected function or const declaration", this.peek());
 		}
 	}
 
@@ -118,7 +121,7 @@ class Compiler {
 		if (this.match(TokenType.NUMBER, TokenType.STRING)) {
 			let literal : LogoValue | undefined = this.previous().literal;
 			if (literal === undefined) {
-				Compiler.error("Expected literal value", this.previous());
+				this.error("Expected literal value", this.previous());
 			}
 			return literal;
 		} else if (this.match(TokenType.TRUE)) {
@@ -138,7 +141,7 @@ class Compiler {
 			return new LogoValue(values);
 		}
 		else {
-			Compiler.error("Expected literal", this.peek());
+			this.error("Expected literal", this.peek());
 		}
 	}
 
@@ -238,7 +241,7 @@ class Compiler {
 			if (equals.type === TokenType.IDENTIFIER) {
 				return `set ${equals.lexeme} ${value}`;
 			} else {
-				Compiler.error("Invalid assignment target", equals);
+				this.error("Invalid assignment target", equals);
 			}
 		}
 		return expression;
@@ -377,7 +380,7 @@ class Compiler {
 			// All numbers and string tokens must have a literal value,
 			// so this should never throw an error.
 			if (literal === undefined) {
-				throw new Error('Expected literal value');
+				this.error("Expected a literal value.", this.previous());
 			}
 			return literal.toString();
 		} else if (this.match(TokenType.IDENTIFIER)) {
@@ -387,7 +390,7 @@ class Compiler {
 				// We already know that the constant exists,
 				// so this should never throw an error.
 				if (constant === undefined) {
-					throw new Error(`Constant ${lexeme} not found`);
+					this.error(`Constant '${lexeme}' is not found.`, this.previous());
 				}
 				constant.used = true;
 				return constant.value.toString();
@@ -409,7 +412,7 @@ class Compiler {
 			this.consume(TokenType.RIGHT_BRACKET, "Expect ']' after elements.");
 			return `( list ${elements.join(' ')} )`;
 		} else {
-			Compiler.error("Expect expression.", this.peek());
+			this.error("Expect expression.", this.peek());
 		}
 	}
 

@@ -1,5 +1,6 @@
 import {Token, TokenType} from "./token.ts";
 import {LogoValue} from "./value.ts";
+import CompileError from "./compileerror.ts";
 
 class Scanner {
 	private source: string;
@@ -7,13 +8,17 @@ class Scanner {
 	private start: number;
 	private current: number;
 	private line: number;
+	private column: number;
+	private file: string;
 
-	public constructor(source: string) {
+	public constructor(source: string, file: string) {
 		this.source = source;
 		this.tokens = [];
 		this.start = 0;
 		this.current = 0;
 		this.line = 1;
+		this.column = 1;
+		this.file = file;
 	}
 
 	public scanTokens(): Token[] {
@@ -23,7 +28,7 @@ class Scanner {
 			this.scanToken();
 		}
 
-		this.tokens.push(new Token(TokenType.EOF, "", this.line));
+		this.tokens.push(new Token(TokenType.EOF, "", this.line, this.column));
 		return this.tokens;
 	}
 
@@ -59,10 +64,6 @@ class Scanner {
 			case '\t':
 				// Ignore whitespace.
 				break;
-			case '\n':
-				this.line++;
-				this.addToken(TokenType.NEWLINE);
-				break;
 			case '"': this.string(); break;
 			default:
 				if (Scanner.isDigit(c)) {
@@ -70,7 +71,9 @@ class Scanner {
 				} else if (Scanner.isAlpha(c)) {
 					this.identifier();
 				} else {
-					throw new Error(`[line: ${this.line}] Unexpected character: \`${c}\``);
+					throw new CompileError(`Unexpected character: '${c}'`,
+						new Token(TokenType.ILLEGAL, c, this.line, this.column - 1),
+						this.source, this.file);
 				}
 		}
 	}
@@ -156,13 +159,21 @@ class Scanner {
 	}
 
 	private advance(): string {
-		this.current++;
-		return this.source.charAt(this.current - 1);
+		const c = this.source.charAt(this.current++);
+		if (c === '\n') {
+			this.line++;
+			this.column = 1;
+			this.tokens.push(new Token(TokenType.NEWLINE, c, this.line, this.column));
+			return this.advance();
+		} else {
+			this.column++;
+		}
+		return c;
 	}
 
 	private addToken(type: TokenType, literal?: any): void {
 		const text = this.source.substring(this.start, this.current);
-		this.tokens.push(new Token(type, text, this.line, literal));
+		this.tokens.push(new Token(type, text, this.line, this.column - text.length, literal));
 	}
 
 	private match(expected: string): boolean {

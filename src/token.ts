@@ -19,7 +19,7 @@ enum TokenType {
 	AND, CONST, ELSE, FALSE, FUNCTION, FOREACH,
 	IF, IN, LET, OR, RETURN, TRUE, WHILE,
 
-	EOF
+	EOF, ILLEGAL,
 }
 
 class Token {
@@ -27,12 +27,14 @@ class Token {
 	public lexeme: string;
 	public literal?: LogoValue;
 	public line: number;
+	public column: number;
 
-	constructor(type: TokenType, lexeme: string, line: number, literal?: LogoValue) {
+	constructor(type: TokenType, lexeme: string, line: number, column: number, literal?: LogoValue) {
 		this.type = type;
 		this.lexeme = lexeme;
 		this.literal = literal;
 		this.line = line;
+		this.column = column;
 	}
 }
 
